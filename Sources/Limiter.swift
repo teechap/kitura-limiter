@@ -6,6 +6,7 @@ import SwiftyJSON
 
 typealias By = (_ request: RouterRequest) -> String
 typealias NextFunc = () -> Void
+typealias WhiteList = (_ request: RouterRequest) -> Bool
 
 private func now() -> Int { // ms since epoch
     return Int(Date().timeIntervalSince1970 * 1000)
@@ -20,7 +21,16 @@ private func defaultByFunc(request: RouterRequest) -> String {
     return request.remoteAddress
 }
 
-public class Limiter: RouterMiddleware {
+private func defaultWhitelist(request: RouterRequest) -> Bool {
+    return false
+}
+
+private func defaultOnRedisError(request: RouterRequest, response: RouterResponse, next: @escaping NextFunc) throws {
+    response.status(HTTPStatusCode.internalServerError).send("Internal server error")
+    try response.end()
+}
+
+class Limiter: RouterMiddleware {
     let by: By
     let onRateLimited: RouterHandler
     let expire: Int
@@ -28,25 +38,34 @@ public class Limiter: RouterMiddleware {
     let defaultLimitJSON: JSON
     let redis: Redis
     let ignoreErrors: Bool
-
-    // TODO: whitelist, onRedisError, skipHeaders/setHeaders functions
+    let whitelist: WhiteList
+    let onRedisError: RouterHandler
+    let skipHeaders: Bool
 
     // 150 req/hour default
-    public init(redis: Redis, by: @escaping By = defaultByFunc, total: Int = 5, expire: Int = 1000 * 60, onRateLimited: @escaping RouterHandler = defaultOnRateLimited, ignoreErrors: Bool = false) {
+    init(redis: Redis, by: @escaping By = defaultByFunc, total: Int = 150, expire: Int = 1000 * 60 * 60, onRateLimited: @escaping RouterHandler = defaultOnRateLimited, ignoreErrors: Bool = false, whitelist: @escaping WhiteList = defaultWhitelist, onRedisError: @escaping RouterHandler = defaultOnRedisError, skipHeaders: Bool = false) {
         self.redis = redis
         self.by = by
         self.total = total
         self.expire = expire
         self.onRateLimited = onRateLimited
+        self.onRedisError = onRedisError
         self.ignoreErrors = ignoreErrors
+        self.whitelist = whitelist
+        self.skipHeaders = skipHeaders
         self.defaultLimitJSON = JSON([
             "total": total,
             "remaining": total,
-            "reset": now() + self.expire
+            "reset": now() + expire
         ])
     }
 
-    public func handle(request: RouterRequest, response: RouterResponse, next: @escaping NextFunc) throws {
+    func handle(request: RouterRequest, response: RouterResponse, next: @escaping NextFunc) throws {
+
+        if whitelist(request) {
+            return next()
+        }
+
         let key = "ratelimit:\(self.by(request))"
 
         redis.get(key) { (string: RedisString?, redisError: NSError?) in
@@ -55,7 +74,7 @@ public class Limiter: RouterMiddleware {
                 if ignoreErrors {
                     return next()
                 } else {
-                    return try! onRateLimited(request, response, next) // onRedisError
+                    return try! onRedisError(request, response, next)
                 }
             } else {
                 var json: JSON
@@ -80,14 +99,33 @@ public class Limiter: RouterMiddleware {
                     if let _ = redisError {
                         if ignoreErrors {
                             return next()
+                        } else {
+                            return try! onRedisError(request, response, next)
                         }
                     } else {
+
+                        if !skipHeaders {
+                            let lim = json["total"].int!
+                            let rs = ceil((Double(json["reset"].int!) / 1000))
+                            let rem = max(json["remaining"].int!, 0)
+
+                            response.headers.append("X-RateLimit-Limit", value: "\(lim)")
+                            response.headers.append("X-RateLimit-Reset", value: "\(rs)")
+                            response.headers.append("X-RateLimit-Remaining", value: "\(rem)")
+                        }
+
                         if json["remaining"].int! >= 0 {
                             return next()
+                        } else {
+
+                            if !skipHeaders {
+                                let after = (json["reset"].int! - now()) / 1000
+                                response.headers.append("Retry-After", value: "\(after)")
+                            }
+
+                            return try! onRateLimited(request, response, next)
                         }
                     }
-
-                    return try! onRateLimited(request, response, next)
                 }
             }
         }
