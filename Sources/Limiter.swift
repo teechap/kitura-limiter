@@ -4,28 +4,28 @@ import KituraNet
 import SwiftRedis
 import SwiftyJSON
 
-typealias By = (_ request: RouterRequest) -> String
-typealias NextFunc = () -> Void
-typealias WhiteList = (_ request: RouterRequest) -> Bool
+public typealias By = (_ request: RouterRequest) -> String
+public typealias NextFunc = () -> Void
+public typealias WhiteList = (_ request: RouterRequest) -> Bool
 
 private func now() -> Int { // ms since epoch
     return Int(Date().timeIntervalSince1970 * 1000)
 }
 
-private func defaultOnRateLimited(request: RouterRequest, response: RouterResponse, next: @escaping NextFunc) throws {
+public func defaultOnRateLimited(request: RouterRequest, response: RouterResponse, next: @escaping NextFunc) throws {
     response.status(HTTPStatusCode.tooManyRequests).send("Rate limit exceeded")
     try response.end()
 }
 
-private func defaultByFunc(request: RouterRequest) -> String {
+public func defaultByFunc(request: RouterRequest) -> String {
     return request.remoteAddress
 }
 
-private func defaultWhitelist(request: RouterRequest) -> Bool {
+public func defaultWhitelist(request: RouterRequest) -> Bool {
     return false
 }
 
-private func defaultOnRedisError(request: RouterRequest, response: RouterResponse, next: @escaping NextFunc) throws {
+public func defaultOnRedisError(request: RouterRequest, response: RouterResponse, next: @escaping NextFunc) throws {
     response.status(HTTPStatusCode.internalServerError).send("Internal server error")
     try response.end()
 }
