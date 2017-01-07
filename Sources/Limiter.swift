@@ -30,7 +30,7 @@ private func defaultOnRedisError(request: RouterRequest, response: RouterRespons
     try response.end()
 }
 
-class Limiter: RouterMiddleware {
+public class Limiter: RouterMiddleware {
     let by: By
     let onRateLimited: RouterHandler
     let expire: Int
@@ -43,7 +43,7 @@ class Limiter: RouterMiddleware {
     let skipHeaders: Bool
 
     // 150 req/hour default
-    init(redis: Redis, by: @escaping By = defaultByFunc, total: Int = 150, expire: Int = 1000 * 60 * 60, onRateLimited: @escaping RouterHandler = defaultOnRateLimited, ignoreErrors: Bool = false, whitelist: @escaping WhiteList = defaultWhitelist, onRedisError: @escaping RouterHandler = defaultOnRedisError, skipHeaders: Bool = false) {
+    public init(redis: Redis, by: @escaping By = defaultByFunc, total: Int = 150, expire: Int = 1000 * 60 * 60, onRateLimited: @escaping RouterHandler = defaultOnRateLimited, ignoreErrors: Bool = false, whitelist: @escaping WhiteList = defaultWhitelist, onRedisError: @escaping RouterHandler = defaultOnRedisError, skipHeaders: Bool = false) {
         self.redis = redis
         self.by = by
         self.total = total
@@ -60,7 +60,7 @@ class Limiter: RouterMiddleware {
         ])
     }
 
-    func handle(request: RouterRequest, response: RouterResponse, next: @escaping NextFunc) throws {
+    public func handle(request: RouterRequest, response: RouterResponse, next: @escaping NextFunc) throws {
 
         if whitelist(request) {
             return next()
